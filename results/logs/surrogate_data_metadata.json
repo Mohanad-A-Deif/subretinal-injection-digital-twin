@@ -1,0 +1,19 @@
+{
+ "train": {
+  "transitions": 400000,
+  "inputs": 40,
+  "outputs": 17,
+  "generation_time_s": 259.7537796497345,
+  "episodes": 100,
+  "seeds": "20000, 20001 (2 batches x 50 episodes)",
+  "collection": "every 4th planning cycle, 4 candidates (2 perturbed) x 4 scenarios x 10 blocks per episode; 100 planning cycles per batch -> 25 collections x 50 episodes x 160 = 200000 per batch"
+ },
+ "val": {
+  "transitions": 50000,
+  "generation_time_s": 134.98924255371094,
+  "episodes": 50,
+  "seeds": "30000 (1 batch x 50 episodes)",
+  "collection": "every 4th planning cycle, 2 candidates x 2 scenarios x 10 blocks"
+ },
+ "note": "sur_train.npz (43 MB) and sur_val.npz are not committed; regenerate with python3 -m sri_twin.collect train|val"
+}
