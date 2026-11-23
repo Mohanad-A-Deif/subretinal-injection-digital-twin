@@ -250,6 +250,17 @@ class CEMPlanner:
         elif self.mode == "inf":
             opt = np.array([0, 0, 0, 1], bool)
             ctx.update(servo=True, n_tgt=nominal_ctl.n_tgt, s_tgt=nominal_ctl.s_tgt)
+        elif self.mode == "fixdepth":
+            # depth set-point fixed at the planned tip-to-RPE distance of the infusion-only
+            # comparator (D_TARGET); lateral, orientation and infusion set-points are optimized
+            opt = np.array([1, 0, 1, 1], bool)
+            mu[..., 1] = (ukf.z[:, ZH] - PR.D_TARGET)[:, None]
+        elif self.mode == "fixmotion":
+            # all motion set-points fixed (depth at D_TARGET from the RPE, zero lateral error,
+            # preferred orientation); only the infusion schedule is optimized
+            opt = np.array([0, 0, 0, 1], bool)
+            mu[..., 1] = (ukf.z[:, ZH] - PR.D_TARGET)[:, None]
+            mu[..., 0] = 0.0; mu[..., 2] = 0.0
         else:
             opt = np.array([1, 1, 1, 1], bool)
         best_K = mu.copy(); best_c = np.full(B, np.inf)

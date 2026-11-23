@@ -61,6 +61,9 @@ def run_batch(cfg, seed, B, regime="medium", variant=None, sensing=None, surroga
     if method == "policy":
         policy.reset(B)
     nsteps = int(round(PR.T_MAX / PR.DT_CTRL))
+    drop_p = cfg.get("drop_p", 0.0); drop_len = cfg.get("drop_len", 1)
+    rng_drop = np.random.default_rng(seed + 31337)
+    miss_left = np.zeros(B, int); n_missed = np.zeros(B, int); n_cycles = np.zeros(B, int)
     u_blk = np.zeros((B, 4)); q_prev = np.zeros(B)
     plan_times = []; est_log = []; rec = []
     enc_prev = y
@@ -80,8 +83,22 @@ def run_batch(cfg, seed, B, regime="medium", variant=None, sensing=None, surroga
         else:
             if k % PR.BLOCK == 0:
                 t0 = time.perf_counter()
+                if drop_p > 0 and k > 0:
+                    st = (planner.mu.copy(), planner.ref_prev.copy(), ref.copy())
                 ref = planner.plan(t, ukf, y, nom)
                 plan_times.append((time.perf_counter() - t0) / B)
+                if drop_p > 0 and k > 0:
+                    # missed planning deadline: the new plan is discarded and the 20 ms law
+                    # keeps tracking the previous set-point; a miss lasts drop_len planning periods
+                    start = (miss_left == 0) & (rng_drop.random(B) < drop_p)
+                    miss_left = np.where(start, drop_len, miss_left)
+                    miss = miss_left > 0
+                    n_missed += miss & ~plant.done
+                    if miss.any():
+                        planner.mu[miss] = st[0][miss]; planner.ref_prev[miss] = st[1][miss]
+                        ref[miss] = st[2][miss]
+                    miss_left = np.maximum(miss_left - 1, 0)
+                    n_cycles += ~plant.done
             p_hat = y["n_enc"] - ukf.z[:, ZMN]; es_hat = y["s_enc"] - ukf.z[:, ZMS]
             u = tracking_law(ref, p_hat, es_hat, y["phi_enc"], ukf.z[:, ZMDN], ukf.z[:, ZMDS])
             if planner.mode == "inf":
@@ -119,6 +136,10 @@ def run_batch(cfg, seed, B, regime="medium", variant=None, sensing=None, surroga
     out = dict(metrics=m, plan_time=np.array(plan_times))
     if ukf is not None:
         out["n_infl"] = ukf.n_infl
+        if "anchored" in ukf.mode or "switched" in ukf.mode:
+            m["ruptured"] = ukf.ruptured.copy()
+    if drop_p > 0:
+        m["n_missed"] = n_missed; m["n_cycles"] = n_cycles
     if log_est:
         out["est"] = est_log
     if record:

@@ -23,6 +23,22 @@ CONFIGS = {
     "abl_adaptive": dict(BASE, est_mode="adaptive"),
     "joint_safety": dict(BASE, safety=True),
     "joint_gated": dict(BASE, est_mode="gated"),
+    # fixed-motion comparators of the joint planner
+    "joint_fixdepth": dict(BASE, mode="fixdepth"),
+    "joint_fixmotion": dict(BASE, mode="fixmotion"),
+    # missed planning deadlines (previous set-point held by the 20 ms law)
+    "joint_miss1": dict(BASE, drop_p=0.01, drop_len=1),
+    "joint_miss5": dict(BASE, drop_p=0.05, drop_len=1),
+    "joint_missburst": dict(BASE, drop_p=0.01, drop_len=6),
+    # OCT-anchored estimator with an explicit rupture state (and without the rupture state)
+    "joint_anchored": dict(BASE, est_mode="anchored"),
+    "joint_anchored_norup": dict(BASE, est_mode="anchored_norup"),
+    # standard filter until a rupture is detected, then the force channel is excluded
+    "joint_switched": dict(BASE, est_mode="switched"),
+    "joint_fixmotion_switched": dict(BASE, mode="fixmotion", est_mode="switched"),
+    # weakly identifiable pair fixed at the prior, uncertainty carried by the scenarios
+    "joint_fixweak": dict(BASE, est_mode="fixweak"),
+    "joint_fixmotion_anchored": dict(BASE, mode="fixmotion", est_mode="anchored"),
 }
 
 VARIANTS = {

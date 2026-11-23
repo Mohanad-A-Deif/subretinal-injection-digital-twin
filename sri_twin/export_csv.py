@@ -35,6 +35,16 @@ def contingency(out="results/mcnemar_contingency.json"):
     }
     for v in ["puncture", "compliance", "saccade", "heavydelay", "driftdelay", "dropout", "shift"]:
         fam[f"ood_{v}"] = (f"joint_ood_{v}", [f"nominal_ood_{v}", f"inf_ood_{v}"])
+        fam[f"ood_{v}_switched"] = (f"joint_switched_ood_{v}", [f"joint_ood_{v}", f"inf_ood_{v}"])
+    # v1.1.0 additions
+    fam["fixmotion_vs_others"] = ("joint_fixmotion", ["nominal", "traj", "inf", "joint", "joint_fixdepth"])
+    fam["fixdepth_vs_others"] = ("joint_fixdepth", ["inf", "joint"])
+    fam["ablation_vs_joint"] = ("joint", ["lam0.00", "abl_nomap", "abl_decoupled", "abl_adaptive", "joint_fixweak"])
+    fam["missed_deadlines_vs_joint"] = ("joint", ["joint_miss1", "joint_miss5", "joint_missburst"])
+    fam["estimators_nominal_vs_joint"] = ("joint", ["joint_anchored", "joint_switched"])
+    fam["puncture_estimators"] = ("joint_anchored_ood_puncture", ["joint_ood_puncture", "joint_anchored_norup_ood_puncture", "inf_ood_puncture"])
+    fam["puncture_fixmotion"] = ("joint_fixmotion_ood_puncture", ["inf_ood_puncture", "joint_ood_puncture"])
+    fam["high_regime_fixmotion"] = ("joint_fixmotion_high", ["joint_high", "inf_high", "nominal_high"])
     res = {}
     for name, (ref, cmps) in fam.items():
         r = load(ref); out_f = {}

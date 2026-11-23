@@ -13,6 +13,8 @@ NZ = 13
 ZMN, ZMDN, ZMS, ZMDS, ZV, ZA, ZP, ZBF, ZLK, ZLA, ZLB, ZLT, ZH = range(NZ)
 TAU_NOM = dict(F=0.0125, D=0.0225, P=0.020, S=0.040, V=0.050, a=0.040)
 ID_IDX = [ZLK, ZLA, ZLB, ZLT, ZH]
+RUP_H = 0.01      # per-step rupture hazard while the tip is inside the tissue
+RUP_SIG = 2.0     # force-residual spread under the ruptured hypothesis (mN)
 
 
 class UKF:
@@ -55,6 +57,8 @@ class UKF:
         self.q_hist = []     # issued infusion commands
         self.nis = np.zeros(B)
         self.n_infl = np.zeros(B, int)
+        self.rho = np.zeros(B)                 # posterior probability of membrane rupture
+        self.ruptured = np.zeros(B, bool)      # latched rupture decision
 
     # ------------------------------------------------------------ sigma points
     def _sigma(self):
@@ -152,14 +156,55 @@ class UKF:
             gate = np.zeros_like(miss); gate[:, [0, 2]] = np.nan_to_num(zz[:, [0, 2]], nan=0.0) > 9.0
             self.n_gated = getattr(self, "n_gated", 0) + gate.sum(0)
             miss = miss | gate
+        anch = "anchored" in self.mode
+        if (anch or "switched" in self.mode) and "norup" not in self.mode:
+            # explicit rupture state: two-hypothesis sequential test on the force residual.
+            # H0: intact Kelvin--Voigt contact; H1: ruptured membrane (contact law invalid,
+            # force residual with a large unexplained offset).  Sticky transition with hazard RUP_H
+            # while the estimated tip is inside the tissue.
+            eF = yv[:, 0] - yhat[:, 0]; sF = S[:, 0, 0]
+            ok = np.isfinite(eF)
+            inside = (self._enc_at(0.0)["n_enc"] - self.z[:, ZMN]) > 0
+            prior = np.where(inside, self.rho + (1 - self.rho) * RUP_H, self.rho)
+            l0 = np.exp(-0.5 * eF ** 2 / sF) / np.sqrt(sF)
+            s1 = sF + RUP_SIG ** 2
+            l1 = np.exp(-0.5 * eF ** 2 / s1) / np.sqrt(s1)
+            post = prior * l1 / np.maximum(prior * l1 + (1 - prior) * l0, 1e-300)
+            self.rho = np.where(ok, post, prior)
+            self.rho = np.clip(self.rho, 0.0, 1.0)
+            self.ruptured = self.ruptured | (self.rho > 0.5)
+            # after rupture the force channel no longer follows the contact law used by the filter
+            miss = miss.copy(); miss[:, 0] = miss[:, 0] | self.ruptured
         innov = np.where(miss, 0.0, yv - yhat)
         S = S + np.einsum("bm,mk->bmk", miss * 1e12, np.eye(5))
         Sinv = np.linalg.inv(S)
         K = C @ Sinv
         if self.mode == "frozen":
             K[:, ZLK:ZH + 1, :] = 0.0
+        if self.mode == "fixweak":
+            # weakly identifiable pair (reflux conductance, tract-opening pressure) kept at the
+            # prior: no update, prior variance retained and passed to the scenario sampler
+            K[:, [ZLA, ZLT], :] = 0.0
+        if anch:
+            # surface position and thickness are anchored on the OCT distance channel:
+            # the force channel informs only the tissue parameters and the force bias
+            K[:, [ZMN, ZMDN, ZH], 0] = 0.0
+            K[:, [ZMS, ZMDS, ZV, ZA, ZP, ZLA, ZLB, ZLT], 0] = 0.0
+        Pold = self.P
         self.z = self.z + np.einsum("bnm,bm->bn", K, innov)
-        self.P = self.P - K @ S @ np.swapaxes(K, -1, -2)
+        if anch:
+            # Joseph-type covariance update, valid for the constrained (suboptimal) gain
+            KC = K @ np.swapaxes(C, -1, -2)
+            self.P = self.P - KC - np.swapaxes(KC, -1, -2) + K @ S @ np.swapaxes(K, -1, -2)
+        else:
+            self.P = self.P - K @ S @ np.swapaxes(K, -1, -2)
+        if self.mode == "fixweak":
+            KC = K @ np.swapaxes(C, -1, -2)
+            self.P = Pold - KC - np.swapaxes(KC, -1, -2) + K @ S @ np.swapaxes(K, -1, -2)
+            ii = [ZLA, ZLT]
+            self.P[:, ii, :] = 0.0; self.P[:, :, ii] = 0.0
+            self.P[:, ZLA, ZLA] = self.S_id[1, 1]; self.P[:, ZLT, ZLT] = self.S_id[3, 3]
+            self.z[:, ZLA] = self.mu_id[1]; self.z[:, ZLT] = self.mu_id[3]
         self.P = 0.5 * (self.P + np.swapaxes(self.P, -1, -2))
         if self.mode == "frozen":
             # parameters fixed at the prior mean: no parameter uncertainty inside the filter
